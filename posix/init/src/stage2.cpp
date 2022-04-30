@@ -65,6 +65,12 @@ int main() {
 		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
 				"/usr/lib/managarm/server/input-atkbd.bin", nullptr);
 	}else assert(input_ps2 != -1);
+
+	auto tpm = fork();
+	if(!tpm) {
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
+				"/usr/lib/managarm/server/tpm.bin", nullptr);
+	}else assert(tpm != -1);
 #endif
 
 	auto input_hid = fork();

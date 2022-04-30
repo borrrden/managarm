@@ -48,8 +48,8 @@ namespace {
 		auto preamble = bragi::read_preamble(reqBuffer);
 		assert(!preamble.error());
 
-		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
+		if(preamble.id() == bragi::message_id<managarm::hw::GetMemoryRegionsRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetMemoryRegionsRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -60,23 +60,19 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 
-			managarm::hw::PciBar<KernelAlloc> mainBar{*kernelAlloc};
-			mainBar.set_io_type(managarm::hw::IoType::PORT);
-			mainBar.set_address(0x1F0);
-			mainBar.set_length(8);
-			resp.add_bars(std::move(mainBar));
+			managarm::hw::BusDeviceMemoryInfo<KernelAlloc> mainRegion{*kernelAlloc};
+			mainRegion.set_tag(frg::string<KernelAlloc>("main", *kernelAlloc));
+			mainRegion.set_type(managarm::hw::IoType::PORT);
+			mainRegion.set_address(0x1F0);
+			mainRegion.set_length(8);
+			resp.add_regions(mainRegion);
 
-			managarm::hw::PciBar<KernelAlloc> altBar{*kernelAlloc};
-			altBar.set_io_type(managarm::hw::IoType::PORT);
-			altBar.set_address(0x3F6);
-			altBar.set_length(1);
-			resp.add_bars(std::move(altBar));
-
-			for(size_t k = 2; k < 6; k++) {
-				managarm::hw::PciBar<KernelAlloc> noBar{*kernelAlloc};
-				noBar.set_io_type(managarm::hw::IoType::NO_BAR);
-				resp.add_bars(std::move(noBar));
-			}
+			managarm::hw::BusDeviceMemoryInfo<KernelAlloc> altRegion{*kernelAlloc};
+			altRegion.set_tag(frg::string<KernelAlloc>("alt", *kernelAlloc));
+			altRegion.set_type(managarm::hw::IoType::PORT);
+			altRegion.set_address(0x3F6);
+			altRegion.set_length(1);
+			resp.add_regions(altRegion);
 
 			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
 
@@ -84,8 +80,8 @@ namespace {
 				co_return headError;
 			if(tailError != Error::success)
 				co_return tailError;
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessMemoryRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessMemoryRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;

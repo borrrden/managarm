@@ -1,0 +1,4 @@
+name: tpm
+exec: /usr/bin/tpm
+files:
+  - /usr/bin/tpm

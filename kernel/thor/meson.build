@@ -13,6 +13,7 @@ link_depends = []
 inc = [ cralgo_includes ]
 link_with = []
 want_acpi = false
+want_tpm = false
 
 src = [
 	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ '-I' + protos/'mbus' ]),
@@ -141,6 +142,12 @@ if want_acpi
 
 	inc += lai_includes
 	link_with += lai_lib
+endif
+
+if want_tpm
+	src += files(
+		'system/tpm/tpm.cpp'
+	)
 endif
 
 link_with += static_library('cralgo', cralgo_sources,

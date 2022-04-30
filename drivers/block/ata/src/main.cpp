@@ -384,16 +384,18 @@ std::vector<std::shared_ptr<Controller>> globalControllers;
 // ------------------------------------------------------------------------
 
 async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device device(co_await entity.bind());
-	auto info = co_await device.getPciInfo();
-	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
-	assert(info.barInfo[1].ioType == protocols::hw::IoType::kIoTypePort);
-	auto mainBar = co_await device.accessBar(0);
-	auto altBar = co_await device.accessBar(1);
+	protocols::hw::BusDevice device(co_await entity.bind());
+	auto info = co_await device.getMemoryRegions();
+	assert(info[0].type == protocols::hw::IoType::kIoTypePort);
+	assert(info[0].tag == "main");
+	assert(info[1].type == protocols::hw::IoType::kIoTypePort);
+	assert(info[1].tag == "alt");
+	auto mainBar = co_await device.accessMemory(0);
+	auto altBar = co_await device.accessMemory(1);
 	auto irq = co_await device.accessIrq();
 
 	auto controller = std::make_shared<Controller>(entity.getId(),
-			info.barInfo[0].address, info.barInfo[1].address,
+			info[0].address, info[1].address,
 			std::move(mainBar), std::move(altBar),
 			std::move(irq));
 	controller->run();
@@ -421,7 +423,7 @@ async::detached observeControllers() {
 // --------------------------------------------------------
 
 int main() {
-	printf("block/ata: Starting driver\n");
+	std::cout << "block/ata: Starting driver" << std::endl;
 
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);

@@ -187,6 +187,8 @@ if build_drivers
 		# usb
 		'usb/hcds/uhci', 'usb/hcds/ehci', 'usb/hcds/xhci',
 		'usb/devices/hid', 'usb/devices/storage',
+		# tpm
+		'tpm',
 		# misc
 		'kernletcc'
 	]

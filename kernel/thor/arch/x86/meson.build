@@ -47,3 +47,4 @@ args += [ '-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2', '-mcmodel=kernel', 
 link_depends += files('link.x')
 
 want_acpi = true
+want_tpm = true
