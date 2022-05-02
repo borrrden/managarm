@@ -1,4 +1,4 @@
-executable('tpm', 'src/main.cpp',
+executable('tpm', ['src/main.cpp', 'src/controller.cpp'],
 	dependencies : [ libarch, mbus_proto_dep, hw_proto_dep, fs_proto_dep ],
 	install : true
 )
