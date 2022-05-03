@@ -217,7 +217,7 @@ static initgraph::Task discoverTpmDevices{&globalInitEngine, "tpm.discover-devic
 					// TODO: This might include FIFO_I2C?
 					mmio = TPM_PTP_BASE_ADDRESS;
 				} else {
-					mmio = tpm2->mmio_area / kPageSize * kPageSize;
+					mmio = tpm2->mmio_area & ~(kPageSize - 1);
 				}
 
 				while(true)

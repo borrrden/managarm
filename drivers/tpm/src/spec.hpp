@@ -74,11 +74,18 @@ namespace tpm::interface_id {
 // Note, largely mirrors interface_id in order to allow hardware
 // to support both interfaces
 namespace tpm::intf_id {
+	enum DataTransferSize : uint8_t {
+		Byte4 = 0b00,
+		Byte8 = 0b01,
+		Byte32 = 0b10,
+		Byte64 = 0b11
+	};
+
 	/*r-*/ arch::field<uint64_t, TpmInterface> interfaceType(0, 4);
 	/*r-*/ arch::field<uint64_t, uint8_t> interfaceVersion(4, 4);
 	/*r-*/ arch::field<uint64_t, bool> capLocality(8, 1);
 	/*r-*/ arch::field<uint64_t, bool> capIdleBypass(9, 1);
-	/*r-*/ arch::field<uint64_t, uint8_t> capDataXferSizeSupport(11, 2);
+	/*r-*/ arch::field<uint64_t, DataTransferSize> capDataXferSizeSupport(11, 2);
 	/*r-*/ arch::field<uint64_t, bool> capFIFO(13, 1);
 	/*r-*/ arch::field<uint64_t, bool> capCRB(14, 1);
 	/*r-*/ arch::field<uint64_t, uint8_t> capIfRes(15,2);

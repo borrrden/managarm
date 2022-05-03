@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include <arch/mem_space.hpp>
 #include <helix/memory.hpp>
@@ -16,7 +17,7 @@ struct ControllerInterface {
 	ControllerInterface(ControllerInterface &&) = delete;
 	virtual ~ControllerInterface() = default;
 
-	virtual async::result<std::unique_ptr<PacketHeader>> 
+	virtual async::result<std::shared_ptr<GenericPacket>> 
 		sendCommand(const uint8_t *buf, size_t size) = 0;
 
 	virtual uint16_t deviceId() const = 0;
@@ -56,9 +57,14 @@ struct Controller {
 	Controller(const Controller &) = delete;
 	Controller(Controller &&) = delete;
 
-	async::result<uint16_t> start();
-	inline async::result<std::unique_ptr<PacketHeader>> sendCommand(const uint8_t *buf, size_t size)
-		{return interface_->sendCommand(buf, size);}
+	async::result<uint32_t> start();
+	inline async::result<std::shared_ptr<GenericPacket>> 
+	sendCommand(const uint8_t *buf, size_t size) {
+		return interface_->sendCommand(buf, size);
+	}
+
+	async::result<size_t> write(const uint8_t *buf, size_t size);
+	size_t read(uint8_t *buf, size_t size);
 
 	inline uint16_t deviceId() const { return interface_->deviceId(); }
 	inline uint16_t vendorId() const { return interface_->vendorId(); }
@@ -67,6 +73,8 @@ struct Controller {
 private:
 	protocols::hw::BusDevice hw_device_;
 	std::unique_ptr<ControllerInterface> interface_;
+	std::vector<uint8_t> lastResponse_;
+	uint32_t lastResponseOffset_ {0};
 };
 
 }

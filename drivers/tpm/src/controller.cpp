@@ -40,15 +40,19 @@ std::function<bool()> condition) {
 	co_return false;
 }
 
-template<typename T>
-void chunkTransfer(uint8_t *dst, const uint8_t *src, size_t size) {
-	auto width = sizeof(T);
-	while(size >= width) {
-		T *wideBuf = (T *)src;
-		arch::mem_ops<T>::store((T *)dst, *wideBuf);
-		size /= width;
-		src += width;
-		dst += width;
+void chunkTransfer(uint8_t *dst, const uint8_t *src, size_t size, 
+intf_id::DataTransferSize transferSize) {
+	if(transferSize != intf_id::Byte4) {
+		memcpy(dst, src, size);
+		return;
+	}
+
+	while(size >= 4) {
+		auto *wideBuf = (uint32_t *)src;
+		arch::mem_ops<uint32_t>::store((uint32_t *)dst, *wideBuf);
+		size /= 4;
+		src += 4;
+		dst += 4;
 	}
 
 	while(size) {
@@ -77,10 +81,23 @@ struct CRBControllerInterface final : public ControllerInterface {
 		}
 
 		dataTransferSize_ = interfaceId & intf_id::capDataXferSizeSupport;
-		std::cout << "tpm: Data transfer size is " << dataTransferSize_ << std::endl;
-		commandBuffer_ = (uint8_t *)(((uint64_t)space_.load(crb_regs::ctrlCmdHaddr) << 32)
+		std::cout << "tpm: Data transfer size is " << (int)dataTransferSize_ << std::endl;
+		
+		auto physicalCmdBuffer = (uint8_t *)(((uint64_t)space_.load(crb_regs::ctrlCmdHaddr) << 32)
 			| space_.load(crb_regs::ctrlCmdLaddr));
-		responseBuffer_ = (uint8_t *)space_.load(crb_regs::ctrlRspAddr);
+		auto physicalRspBuffer = (uint8_t *)space_.load(crb_regs::ctrlRspAddr);
+
+		commandBuffer_ = (uint8_t *)mapping_.get() + 0x80;
+		responseBuffer_ = commandBuffer_;
+		
+		// TPM devices compliant with the PC Client Profile spec guarantee
+		// these all to be pointing to the data buffer region of MMIO.  However,
+		// They are physical addresses, so do some sanity checking to make sure
+		// the virtual MMIO lines up.
+		uintptr_t physicalMapping;
+		assert(helPointerPhysical(commandBuffer_, &physicalMapping) == kHelErrNone);
+		assert((uintptr_t)physicalCmdBuffer == physicalMapping);
+		assert((uintptr_t)physicalRspBuffer == physicalMapping);
 	}
 
 	uint16_t deviceId() const override {
@@ -96,59 +113,61 @@ struct CRBControllerInterface final : public ControllerInterface {
 		return space_.load(crb_regs::intfId) & intf_id::rid;
 	}
 
-	async::result<std::unique_ptr<PacketHeader>> 
+	async::result<std::shared_ptr<GenericPacket>> 
 	sendCommand(const uint8_t *buf, size_t size) override {
 		std::cout << "tpm: Sending command" << std::endl;
 		auto controlStatus = space_.load(crb_regs::ctrlSts);
 		if((controlStatus & ctrl_sts::tpmSts) == ctrl_sts::FatalError) {
-			co_return std::unique_ptr<PacketHeader>(new PacketHeader { 0, 0, RC_FAILURE });
+			co_return std::shared_ptr<GenericPacket>(new GenericPacket {{ 0, 0, RC_FAILURE }});
 		}
 
 		std::cout << "tpm: Device is operational" << std::endl;
 		auto localityAchieved = co_await requestLocality();
 		if(!localityAchieved) {
-			co_return std::unique_ptr<PacketHeader>(new PacketHeader { 0, 0, RC_FAILURE });
+			co_return std::shared_ptr<GenericPacket>(new GenericPacket {{ 0, 0, RC_FAILURE }});
 		}
 
 		std::cout << "tpm: Locality accessed" << std::endl;
 		auto idleToReadyResult = co_await idleToReady();
 		if(!idleToReadyResult) {
-			co_return std::unique_ptr<PacketHeader>(new PacketHeader { 0, 0, RC_FAILURE });
+			co_return std::shared_ptr<GenericPacket>(new GenericPacket {{ 0, 0, RC_FAILURE }});
 		}
 
 		std::cout << "tpm: Device is ready to receive command" << std::endl;
-		if(dataTransferSize_ == 4) {
-			chunkTransfer<uint32_t>(commandBuffer_, buf, size);
-		} else {
-			chunkTransfer<uint64_t>(commandBuffer_, buf, size);
-		}
-		
+		chunkTransfer(commandBuffer_, buf, size, dataTransferSize_);
+
 		auto executionResult = co_await startExecution(timeouts::CMD_DURATION_LONG,
 			timeouts::CMD_TIMEOUT_LONG);
 		if(!executionResult) {
-			co_return std::unique_ptr<PacketHeader>(new PacketHeader { 0, 0, RC_FAILURE });
+			co_return std::shared_ptr<GenericPacket>(new GenericPacket {{ 0, 0, RC_FAILURE }});
 		}
 
 		std::cout << "tpm: Device finished executing command" << std::endl;
 		
-		std::unique_ptr<PacketHeader> returnPacket;
-		memcpy(returnPacket.get(), responseBuffer_, sizeof(PacketHeader));
+		PacketHeader header;
+		chunkTransfer((uint8_t *)&header, responseBuffer_, sizeof(PacketHeader), dataTransferSize_);
+		auto *packet = (GenericPacket *)malloc(header.size);
+		packet->header = header;
+		chunkTransfer(packet->data, responseBuffer_ + sizeof(PacketHeader), 
+			be32toh(header.size) - sizeof(PacketHeader), dataTransferSize_);
+		auto returnPacket = std::shared_ptr<GenericPacket>(packet);
+		
 
 		auto readyToIdleResult = co_await readyToIdle();
 		if(!readyToIdleResult) {
-			co_return std::unique_ptr<PacketHeader>(new PacketHeader { 0, 0, RC_FAILURE });
+			co_return std::shared_ptr<GenericPacket>(new GenericPacket {{ 0, 0, RC_FAILURE }});
 		}
 
 		std::cout << "tpm: Device is idle" << std::endl;
 
-		co_return std::move(returnPacket);
+		co_return returnPacket;
 	}
 
 private:
 	uint8_t *commandBuffer_;
 	uint8_t *responseBuffer_;
 	uint8_t locality_ {0};
-	uint8_t dataTransferSize_;
+	intf_id::DataTransferSize dataTransferSize_;
 
 	async::result<bool> requestLocality() {
 		auto locState = space_.load(crb_regs::locState);
@@ -258,10 +277,34 @@ smarter::shared_ptr<Controller> Controller::make_controller(
 	return smarter::make_shared<Controller>(device, interface);
 }
 
-async::result<uint16_t> Controller::start() {
+async::result<uint32_t> Controller::start() {
 	auto cmd = makeStartCommand(SU_STATE);
-	auto result = co_await sendCommand((uint8_t *)&cmd, cmd.header.size);
-	co_return result->commandCode;
+	auto result = co_await sendCommand((uint8_t *)&cmd, be32toh(cmd.header.size));
+	co_return result->header.code;
+}
+
+async::result<size_t> Controller::write(const uint8_t *buf, size_t size) {
+	std::cout << "tpm: command size is " << size << std::endl;
+	auto result = co_await sendCommand(buf, size);
+	auto responseSize = be32toh(result->header.size);
+	lastResponseOffset_ = 0;
+	lastResponse_.resize(responseSize);
+	memcpy(lastResponse_.data(), result.get(), responseSize);
+	co_return size;
+}
+
+size_t Controller::read(uint8_t *buf, size_t size) {
+	if(lastResponseOffset_ == lastResponse_.size()) {
+		return 0;
+	}
+
+	if(lastResponse_.size() - lastResponseOffset_ < size) {
+		size = lastResponse_.size() - lastResponseOffset_;
+	}
+
+	memcpy(buf, lastResponse_.data() + lastResponseOffset_, size);
+	lastResponseOffset_ += size;
+	return size;
 }
 
 }

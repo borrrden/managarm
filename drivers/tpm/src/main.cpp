@@ -19,12 +19,15 @@ std::vector<smarter::shared_ptr<Controller>> globalControllers;
 
 async::result<protocols::fs::ReadResult>
 read(void *f, const char *, void *buffer, size_t length) {
-	co_return size_t{0};
+	auto *controller = reinterpret_cast<Controller *>(f);
+	co_return controller->read((uint8_t *)buffer, length);
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
-write(void *, const char *, const void *buffer, size_t length) {
-	co_return length;
+write(void *f, const char *, const void *buffer, size_t length) {
+	auto *controller = reinterpret_cast<Controller *>(f);
+	auto result = co_await controller->write((uint8_t *)buffer, length);
+	co_return result;
 }
 
 constexpr auto fileOperations = protocols::fs::FileOperations{
@@ -83,8 +86,8 @@ async::detached bindController(mbus::Entity entity) {
 	std::cout << "\tDevice ID 0x" << controller->deviceId() << std::endl;
 	std::cout << "\tRevision ID 0x" << (int)controller->revisionId() << std::dec << std::endl;
 	auto startResult = co_await controller->start();
-	if(startResult != RC_SUCCESS) {
-		std::cout << "Failed to start TPM device (" << startResult << ")" << std::endl;
+	if(startResult != RC_SUCCESS && startResult != RC_INITIALIZE) {
+		std::cout << "Failed to start TPM device (" << be32toh(startResult) << ")" << std::endl;
 		co_return;
 	}
 
